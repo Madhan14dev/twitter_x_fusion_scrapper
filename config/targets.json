@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "username": "xdevelopers",
+      "scrape": ["profile", "tweets", "media"],
+      "limit": 50
+    },
+    {
+      "username": "elonmusk",
+      "scrape": ["profile", "tweets"],
+      "limit": 50
+    }
+  ]
+}

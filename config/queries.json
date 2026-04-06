@@ -1,0 +1,19 @@
+{
+  "queries": [
+    {
+      "query": "AI news lang:en",
+      "limit": 100,
+      "tab": "Latest"
+    },
+    {
+      "query": "python programming",
+      "limit": 100,
+      "tab": "Latest"
+    },
+    {
+      "query": "machine learning -filter:retweets",
+      "limit": 100,
+      "tab": "Latest"
+    }
+  ]
+}
