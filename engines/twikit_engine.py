@@ -6,8 +6,7 @@ from datetime import datetime
 try:
     from twikit import Client
     from twikit.errors import (
-        TooManyRequests, 
-        AccountSuspended,
+        TooManyRequests,
         ServerError,
         TwitterException
     )
@@ -52,11 +51,40 @@ class TwikitEngine(BaseEngine):
         """Ensure cookies are loaded."""
         if not self._cookies_loaded and self._cookies_path:
             try:
-                await self.client.load_cookies(self._cookies_path)
+                cookies_path_str = self._cookies_path
+                import json
+                with open(cookies_path_str, 'r', encoding='utf-8') as f:
+                    raw = json.load(f)
+
+                # Handle accounts wrapper format: {"accounts": [{..., "cookies": {...}}, ...]}
+                if isinstance(raw, dict) and "accounts" in raw:
+                    accounts = raw["accounts"]
+                    cookies = None
+                    for acc in accounts:
+                        if acc.get("cookies") and isinstance(acc["cookies"], dict):
+                            cookies = acc["cookies"]
+                            break
+                    if not cookies or (not cookies.get("ct0") and not cookies.get("auth_token")):
+                        logger.warning(
+                            "No valid Twitter cookies found in %s. "
+                            "Log in with 'python cli.py login <username>' first.",
+                            cookies_path_str,
+                        )
+                        return
+                elif isinstance(raw, dict) and raw.get("ct0"):
+                    cookies = raw
+                else:
+                    logger.warning(
+                        "Cookies file %s contains invalid format (expected {ct0, auth_token})",
+                        cookies_path_str,
+                    )
+                    return
+
+                self.client.load_cookies(cookies_path_str) if isinstance(raw, dict) and raw.get("ct0") else self.client.set_cookies(cookies)
                 self._cookies_loaded = True
-                logger.info(f"Loaded cookies from {self._cookies_path}")
+                logger.info("Loaded cookies from %s", cookies_path_str)
             except Exception as e:
-                logger.warning(f"Failed to load cookies: {e}")
+                logger.warning("Failed to load cookies: %s", e)
     
     async def search(
         self,
@@ -267,7 +295,7 @@ class TwikitEngine(BaseEngine):
             trends = await self.client.get_trends(
                 twikit_category,
                 count=count,
-                retry=2,
+                retry=True,
                 additional_request_params=kwargs.get("extra_params")
             )
             
@@ -392,15 +420,44 @@ class TwikitEngine(BaseEngine):
                 is_transient=self._is_transient_error(e)
             )
     
+    async def login(
+        self,
+        username: str,
+        password: str,
+        email: str | None = None,
+        totp_secret: str | None = None,
+        cookies_file: str | None = None
+    ) -> dict:
+        """Login to Twitter and save cookies to a JSON file.
+
+        Uses ``twikit.Client.login`` which persists cookies when
+        ``cookies_file`` is given (no separate save step needed).
+        """
+        try:
+            cookies_file = cookies_file or self._cookies_path or "./config/cookies.json"
+            await self.client.login(
+                auth_info_1=username,
+                password=password,
+                auth_info_2=email,
+                totp_secret=totp_secret,
+                cookies_file=cookies_file,
+            )
+            self._cookies_path = cookies_file
+            self._cookies_loaded = True
+            logger.info("twikit: logged in as %s, cookies saved to %s", username, cookies_file)
+            return {"success": True, "cookies_file": cookies_file}
+        except Exception as e:
+            logger.warning("twikit login failed for %s: %s", username, e)
+            return {"success": False, "error": str(e)}
+
     async def close(self):
         """Clean up resources."""
         pass
-    
+
     async def health_check(self) -> bool:
         """Check if engine is healthy."""
         try:
             await self._ensure_cookies()
-            # Try to get current user
             user = await self.client.user()
             return user is not None
         except Exception as e:
@@ -411,7 +468,5 @@ class TwikitEngine(BaseEngine):
         """Determine if error is transient."""
         if isinstance(error, TooManyRequests):
             return True
-        if isinstance(error, RateLimitTooSmallError):
-            return True
         error_str = str(error).lower()
-        return "timeout" in error_str or "connection" in error_str
+        return "timeout" in error_str or "connection" in error_str or "rate" in error_str

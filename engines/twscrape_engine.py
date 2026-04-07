@@ -3,10 +3,11 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator
 from datetime import datetime
+from pathlib import Path
 
-import Scrapper.twscrape.twscrape as twscrape
-from Scrapper.twscrape.twscrape import API
-
+import twscrape
+from twscrape import API, AccountsPool
+from twscrape.login import login as twscrape_login, LoginConfig
 from engines.base import BaseEngine, EngineResult, EngineError
 
 
@@ -15,25 +16,28 @@ logger = logging.getLogger(__name__)
 
 class TwscrapeEngine(BaseEngine):
     """twscrape engine adapter providing unified interface."""
-    
+
     name = "twscrape"
-    
+
     def __init__(self, db_path: str, config: dict[str, Any] | None = None):
         super().__init__(config)
         self.db_path = db_path
         self.api: API | None = None
         self._proxy = config.get("proxy") if config else None
         self._ssl = config.get("ssl_verify", True)
-    
+
+    @property
+    def pool(self) -> AccountsPool:
+        """Get AccountsPool for direct account operations."""
+        return AccountsPool(db_file=self.db_path)
+
     async def _ensure_api(self):
         """Lazy initialization of API."""
         if self.api is None:
-            self.api = API(
-                pool=self.db_path,
-                proxy=self._proxy,
-                ssl=self._ssl,
-                debug=self.config.get("debug", False)
-            )
+            kwargs = {"debug": self.config.get("debug", False)}
+            if self._proxy:
+                kwargs["proxy"] = self._proxy
+            self.api = API(**kwargs)
     
     async def search(
         self,
@@ -249,6 +253,62 @@ class TwscrapeEngine(BaseEngine):
         # twscrape doesn't require explicit cleanup
         pass
     
+    async def login(
+        self,
+        username: str,
+        password: str,
+        email: str,
+        email_password: str = "",
+        user_agent: str | None = None,
+        proxy: str | None = None,
+        mfa_code: str | None = None,
+        cookies: str | None = None,
+    ) -> dict:
+        """Add account to pool and perform interactive login.
+
+        Uses twscrape's AccountsPool.add_account() + AccountsPool.login() which
+        handles the full Twitter auth flow (username -> password -> email check -> 2FA).
+        Sessions are automatically persisted to the accounts.db file.
+        """
+        pool = self.pool
+
+        # Add (or update) account in the pool.  We use a placeholder active=False
+        # so twscrape.login() will run the full credential exchange.
+        try:
+            await pool.add_account(
+                username=username,
+                password=password,
+                email=email,
+                email_password=email_password,
+                user_agent=user_agent,
+                proxy=proxy or self._proxy,
+                mfa_code=mfa_code,
+                cookies=cookies,
+            )
+        except Exception:
+            # Account may already exist—delete and re-add so credentials refresh
+            await pool.delete_accounts([username])
+            await pool.add_account(
+                username=username,
+                password=password,
+                email=email,
+                email_password=email_password,
+                user_agent=user_agent,
+                proxy=proxy or self._proxy,
+                mfa_code=mfa_code,
+                cookies=cookies,
+            )
+
+        logger.info("Running twscrape login flow for %s …", username)
+        account = await pool.get_account(username)
+        result = await twscrape_login(account, LoginConfig(manual=True))
+        await pool.save()  # persist to accounts.db
+
+        if result.active:
+            logger.info("twscrape: logged in as %s", username)
+            return {"success": True}
+        return {"success": False, "error": getattr(result, "error_msg", "login returned inactive")}
+
     async def health_check(self) -> bool:
         """Check if engine is healthy."""
         try:

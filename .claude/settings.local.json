@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/SMA/**)",
+      "Bash(python -c \"from pathlib import Path; print\\(Path\\('D:/SMA/twikit'\\).exists\\(\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pip uninstall twikit -y)",
+      "Bash(.venv/Scripts/python.exe -m pip install --no-deps twikit)",
+      "Bash(.venv/Scripts/python.exe -m py_compile D:/SMA/twitter/cli.py D:/SMA/twitter/engines/twscrape_engine.py D:/SMA/twitter/engines/twikit_engine.py D:/SMA/twitter/models/tweet.py D:/SMA/twitter/output/pipeline.py D:/SMA/twitter/core/smart_router.py)",
+      "Bash(.venv/Scripts/python.exe cli.py login --help)",
+      "Bash(.venv/Scripts/python.exe -c ':*)"
+    ]
+  }
+}

@@ -4,12 +4,6 @@
   <a href="https://github.com/yourusername/twitter-scraper-pipeline/actions/workflows/ci.yml">
     <img src="https://img.shields.io/github/actions/status/yourusername/twitter-scraper-pipeline/ci?style=flat-square" alt="CI">
   </a>
-  <a href="https://pypi.org/project/twitter-scraper-pipeline/">
-    <img src="https://img.shields.io/pypi/v/twitter-scraper-pipeline?style=flat-square" alt="PyPI">
-  </a>
-  <a href="https://github.com/yourusername/twitter-scraper-pipeline/blob/main/LICENSE">
-    <img src="https://img.shields.io/pypi/l/twitter-scraper-pipeline?style=flat-square" alt="License">
-  </a>
 </p>
 
 A production-ready Twitter/X scraping pipeline that combines **twscrape** and **twikit** engines with automatic fallback, smart routing, circuit breakers, and adaptive rate limiting.
@@ -19,9 +13,10 @@ A production-ready Twitter/X scraping pipeline that combines **twscrape** and **
 - **🔄 Automatic Fallback**: Switches between twscrape and twikit seamlessly when one fails
 - **🛡️ Circuit Breaker**: Temporarily disables failing engines to prevent cascade failures
 - **⚡ Adaptive Rate Limiting**: Smart throttling with exponential backoff and jitter
-- **📊 Unified Data Models**: Standardized output format regardless of data source
+- **📊 Unified Data Models**: Standardized output format (Twitter API v2 structure)
 - **💾 Dual Output**: JSON files + SQLite database for persistence
-- **🔐 Secure Configuration**: Environment variable support for sensitive data
+- **🔐 Programmatic Login**: No more manual cookie extraction — log in directly from the CLI
+- **🧑‍💼 Account Pooling**: Manage multiple Twitter accounts with automatic rotation and health tracking
 - **🐳 Production Ready**: Comprehensive logging, error handling, and status monitoring
 
 ## 📋 Prerequisites
@@ -33,13 +28,12 @@ A production-ready Twitter/X scraping pipeline that combines **twscrape** and **
 | OS | Windows, macOS, Linux |
 
 ### Required for twscrape (Basic)
-- Valid Twitter/X account cookies in JSON format
+- At least one Twitter/X account (username + password + email) for login
 - Network access to x.com and api.x.com
 
 ### Required for twikit (Advanced/Trends)
 - twikit library installed
-- Valid Twitter/X authentication cookies
-- 2FA support (if account has 2FA enabled)
+- Valid Twitter/X authentication cookies or programmatic login
 
 ## 🚀 Quick Start
 
@@ -51,33 +45,38 @@ git clone https://github.com/yourusername/twitter-scraper-pipeline.git
 cd twitter-scraper-pipeline
 
 # Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
 # or
-venv\Scripts\activate   # Windows
+.venv\Scripts\activate   # Windows
 
 # Install core dependencies
 pip install -r requirements.txt
 
-# Install twikit for extended features (optional but recommended)
-pip install -e ../twikit
+# Install twikit for extended features
+pip install twikit
 ```
 
-### 2. Configure Cookies
+### 2. Log In
 
-Create your cookies file at `config/accounts.json`:
+No need to manually extract cookies from your browser. Log in directly:
 
-```json
-{
-  "ct0": "your-ct0-cookie-value",
-  "auth_token": "your-auth-token"
-}
+```bash
+# Interactive login (prompts for password and email)
+python cli.py login your_username
+
+# Fully non-interactive
+python cli.py login your_username --password "your_password" --email "your_email@example.com"
+
+# With MFA / TOTP (if the account has 2FA)
+python cli.py login your_username --password "pwd" --email "email@example.com" --mfa "ABC123"
 ```
 
-**How to get cookies:**
-1. Open Twitter/X in Chrome/Firefox
-2. Press F12 → Application → Cookies → x.com
-3. Copy `ct0` and `auth_token` values
+The login command authenticates against one or both engines and persists sessions:
+- **twscrape**: sessions saved to `accounts.db` (automatic account pool)
+- **twikit**: per-account cookie files saved to `output/cookies_<username>.json`
+
+When you run scraping commands afterwards, accounts are automatically rotated from the pool.
 
 ### 3. Run Your First Scraping
 
@@ -97,6 +96,29 @@ python cli.py status
 
 ## 📖 CLI Commands
 
+### Login
+
+```bash
+# Interactive login (will prompt for missing credentials)
+python cli.py login <username>
+
+# Non-interactive login
+python cli.py login <username> --password "..." --email "..."
+
+# Authenticate against both engines
+python cli.py login <username> --engines twscrape twikit
+
+# Authenticate against twscrape only
+python cli.py login <username> --engines twscrape
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--password` | Account password | prompted |
+| `--email` | Account email | prompted |
+| `--mfa` | MFA / TOTP secret | none |
+| `--engines` | Engines to authenticate with | twscrape twikit |
+
 ### Search
 
 ```bash
@@ -108,9 +130,6 @@ python cli.py search "AI" "machine learning" "data science" --limit 50
 
 # Latest tab (default)
 python cli.py search "test" --limit 20
-
-# Top results
-python cli.py search "test" --limit 20 --tab Top
 ```
 
 ### Trends
@@ -131,9 +150,6 @@ python cli.py user elonmusk
 
 # Get user profile + tweets
 python cli.py user elonmusk --tweets --limit 100
-
-# Get user profile + followers
-python cli.py user elonmusk --followers --limit 50
 ```
 
 ### Options
@@ -153,9 +169,6 @@ python cli.py user elonmusk --followers --limit 50
 Create a `.env` file in the project root (see `.env.example`):
 
 ```bash
-# Twitter Cookies
-TWITTER_COOKIES_FILE=config/accounts.json
-
 # Proxy (optional)
 TWS_PROXY=http://127.0.0.1:8080
 
@@ -198,13 +211,12 @@ twitter-scraper-pipeline/
 ├── cli.py                     # Main CLI entry point
 ├── config/
 │   ├── settings.py            # Configuration management
-│   ├── accounts.json          # Twitter cookies (create this)
 │   ├── queries.json           # Pre-defined queries
 │   └── targets.json           # Target users/hashtags
 ├── engines/
 │   ├── base.py                # Abstract engine interface
 │   ├── twscrape_engine.py     # twscrape adapter
-│   ├── twwikit_engine.py      # twikit adapter
+│   ├── twikit_engine.py       # twikit adapter
 │   └── guest_engine.py        # Guest/anonymous access
 ├── core/
 │   ├── smart_router.py       # Fallback routing & circuit breaker
@@ -212,12 +224,11 @@ twitter-scraper-pipeline/
 │   ├── rate_limiter.py       # Adaptive throttling
 │   └── error_handler.py       # Error classification & retry
 ├── models/
-│   ├── tweet.py               # Unified tweet model
+│   ├── tweet.py               # Unified tweet model (Twitter API v2)
 │   ├── user.py                # Unified user model
 │   └── trend.py               # Unified trend model
 ├── output/
 │   └── pipeline.py           # JSON + SQLite output
-├── old/                       # Legacy code (deprecated)
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # This file
 └── .gitignore                 # Git ignore rules
@@ -237,9 +248,11 @@ twitter-scraper-pipeline/
 
 ## 🔒 Security
 
-- **Never commit cookies**: Add `config/accounts.json` to `.gitignore`
+- **Programmatic login**: Accounts authenticate directly via CLI — no browser cookie extraction needed
+- **Session persistence**: twscrape uses `accounts.db` (SQLite), twikit uses per-account JSON cookie files
+- **Account pooling**: Multiple accounts are automatically rotated and health-tracked
 - **Use environment variables**: Store sensitive data in `.env`
-- **Rotate cookies regularly**: Twitter sessions expire
+- **Rotate credentials regularly**: Twitter sessions expire; re-login when needed
 - **Use proxy for large-scale**: Prevents IP blocks
 
 ## 🐛 Troubleshooting
@@ -247,7 +260,7 @@ twitter-scraper-pipeline/
 ### "No active accounts" Error
 ```bash
 # Reset account locks
-python -c "import sqlite3; conn = sqlite3.connect('accounts.db'); conn.execute('UPDATE accounts SET locks = \"{}\"'); conn.commit()"
+python -c "import sqlite3; conn = sqlite3.connect('output/accounts.db'); conn.execute('UPDATE accounts SET locks = \"{}\"'); conn.commit()"
 ```
 
 ### Trends returning empty
@@ -297,12 +310,12 @@ from core import SmartRouter
 
 async def main():
     # Create engine
-    engine = TwscrapeEngine(db_path="accounts.db")
-    
+    engine = TwscrapeEngine(db_path="output/accounts.db")
+
     # Use directly
     async for tweet in engine.search("python", limit=10):
         print(tweet.data)
-    
+
     await engine.close()
 
 asyncio.run(main())

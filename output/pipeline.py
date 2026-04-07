@@ -53,13 +53,12 @@ class OutputPipeline:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tweets (
-                id INTEGER PRIMARY KEY,
+                id TEXT PRIMARY KEY,
                 text TEXT,
-                author_id INTEGER,
+                author_id TEXT,
                 author_username TEXT,
                 created_at TEXT,
-                likes INTEGER,
-                retweets INTEGER,
+                public_metrics TEXT,
                 source_engine TEXT,
                 scraped_at TEXT,
                 UNIQUE(id, source_engine)
@@ -115,21 +114,21 @@ class OutputPipeline:
     
     async def _save_tweets_to_db(self, tweets: list[dict[str, Any]]):
         """Save tweets to database."""
+        import json
         conn = sqlite3.connect(self.db_path)
         for tweet in tweets:
             try:
                 conn.execute("""
-                    INSERT OR REPLACE INTO tweets 
-                    (id, text, author_id, author_username, created_at, likes, retweets, source_engine, scraped_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO tweets
+                    (id, text, author_id, author_username, created_at, public_metrics, source_engine, scraped_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     tweet.get("id"),
                     tweet.get("text", ""),
                     tweet.get("author_id"),
-                    tweet.get("author_username"),
+                    tweet.get("username"),
                     tweet.get("created_at"),
-                    tweet.get("likes", 0),
-                    tweet.get("retweets", 0),
+                    json.dumps(tweet.get("public_metrics", {})),
                     tweet.get("source_engine", ""),
                     datetime.now().isoformat()
                 ))
